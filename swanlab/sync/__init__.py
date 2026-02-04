@@ -18,6 +18,44 @@ from ..formatter import check_proj_name_format, check_run_id_format
 from ..log import swanlog
 
 
+def _has_swd_files(dir_path: str) -> bool:
+    """检查目录下是否存在 .swd 文件"""
+    data_dir = os.path.join(dir_path, "data")
+    if not os.path.isdir(data_dir):
+        return False
+    return any(f.endswith(".swd") for f in os.listdir(data_dir))
+
+
+def _sync_swd(dir_path: str, cos_client):
+    """
+    同步 .swd 文件到 COS（增量续传）
+
+    读取本地 data/ 目录下的所有 .swd 文件，
+    HEAD 获取远端大小，从差异处续传。
+    """
+    from swanlab.core_python.cos import CosAppender
+
+    data_dir = os.path.join(dir_path, "data")
+    manifest_path = os.path.join(dir_path, "manifest.json")
+
+    swd_files = [f for f in os.listdir(data_dir) if f.endswith(".swd")]
+    total_transferred = 0
+
+    for swd_file in sorted(swd_files):
+        local_path = os.path.join(data_dir, swd_file)
+        appender = CosAppender(cos_client, object_key=swd_file)
+        transferred = appender.sync_from_local(local_path)
+        total_transferred += transferred
+        swanlog.debug(f"Synced {swd_file}: {transferred} bytes")
+
+    # 上传 manifest
+    if os.path.exists(manifest_path):
+        with open(manifest_path, "rb") as f:
+            cos_client.put_object(key="manifest.json", data=f.read())
+
+    return total_transferred
+
+
 def sync(
     dir_path: str,
     workspace: str = None,
@@ -70,7 +108,16 @@ def sync(
                     set_run_store(run_store, proj, exp, project, workspace, id)
                     # 创建实验会话
                     mounter.execute()
-                    # 同步
+                    # 检测是否存在 .swd 文件
+                    if _has_swd_files(dir_path) and run_store.cos_config:
+                        # .swd 模式：直接 COS 上传
+                        from swanlab.core_python.cos import CosClient, CosConfig
+                        cos_client = CosClient(CosConfig(**run_store.cos_config))
+                        try:
+                            _sync_swd(dir_path, cos_client)
+                        finally:
+                            cos_client.close()
+                    # 始终走现有 backup.swanlab 同步流程（保持兼容）
                     porter.synchronize()
         swanlog.info("🚀 Sync completed, View run at ", client.web_exp_url)
     except Exception as e:

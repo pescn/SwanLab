@@ -7,6 +7,7 @@
 
 import json
 import math
+import time as _time
 from typing import Optional, Tuple
 
 from swanlab.data.modules import DataWrapper, Line
@@ -38,6 +39,8 @@ class SwanLabKey:
         key: str,
         media_dir: str,
         log_dir: str,
+        swd_writer=None,
+        swd_file_path: Optional[str] = None,
     ) -> None:
         self.key = key
         # 当前 key 包含的 step
@@ -49,6 +52,9 @@ class SwanLabKey:
         self._summary = {}
         # 当前key的数据集合
         self._collection = self.__new_metric_collection()
+        # .swd 二进制格式写入器（可选，由 use_swd_format 设置控制）
+        self._swd_writer = swd_writer
+        self._swd_file_path = swd_file_path
 
     @property
     def sum(self):
@@ -127,6 +133,18 @@ class SwanLabKey:
         self._collection["data"].append(new_data)
         epoch = len(self.steps)
         mu = math.ceil(epoch / self.__slice_size)
+        # 如果启用了 .swd 格式，写入二进制数据
+        swd_bytes = None
+        if self._swd_writer is not None and isinstance(r, (int, float)):
+            try:
+                timestamp = int(_time.time() * 1_000_000)  # epoch microseconds
+                swd_bytes = self._swd_writer.append_scalar(
+                    step=result.step,
+                    value=float(r) if r not in [Line.nan, Line.inf] else float(r),
+                    timestamp=timestamp,
+                )
+            except Exception as e:
+                swanlog.debug(f"Failed to write .swd record for key '{self.key}': {e}")
         return MetricInfo(
             column_info=self.column_info,
             metric=json.loads(json.dumps(new_data)),
@@ -137,6 +155,8 @@ class SwanLabKey:
             metric_file_name=str(mu * self.__slice_size) + ".log",
             swanlab_logdir=self._log_dir,
             swanlab_media_dir=self._media_dir if result.buffers else None,
+            swd_bytes=swd_bytes,
+            swd_file_path=self._swd_file_path,
         )
 
     def create_column(

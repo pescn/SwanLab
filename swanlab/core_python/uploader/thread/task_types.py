@@ -57,3 +57,10 @@ class UploadType(Enum):
     """
     上传列信息
     """
+
+    SWD_FLUSH = {
+        "upload": None,  # COS 上传由 CosAppender 直接处理，不经过传统上传流程
+    }
+    """
+    重试失败的 COS .swd 上传
+    """

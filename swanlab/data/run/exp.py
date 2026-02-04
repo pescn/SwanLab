@@ -1,7 +1,9 @@
+import os
 from typing import Dict, Optional
 
 from swanlab.data.modules import DataWrapper
 from swanlab.log import swanlog
+from swanlab.swanlab_settings import get_settings
 from swanlab.toolkit import (
     MetricInfo,
     MetricErrorInfo,
@@ -142,7 +144,17 @@ class SwanLabExp:
         if key_obj is None:
             num = len(self._keys)
             # 将此tag对象添加到实验列表中
-            key_obj = SwanLabKey(key, self._run_store.media_dir, self._run_store.log_dir)
+            swd_writer = None
+            swd_file_path = None
+            if get_settings().use_swd_format:
+                swd_writer, swd_file_path = self._create_swd_writer(num)
+            key_obj = SwanLabKey(
+                key,
+                self._run_store.media_dir,
+                self._run_store.log_dir,
+                swd_writer=swd_writer,
+                swd_file_path=swd_file_path,
+            )
             self._keys[key_index] = key_obj
             # 新建图表，完成数据格式校验
             column_info = key_obj.create_column(
@@ -166,6 +178,28 @@ class SwanLabExp:
         key_info.buffers = data.parse().buffers
         key_info.media_dir = self._run_store.media_dir
         return key_info
+
+    def _create_swd_writer(self, metric_id: int):
+        """
+        创建 SwdWriter 实例，用于写入 .swd 二进制格式
+
+        :param metric_id: 指标 ID（即第几个指标）
+        :return: (SwdWriter, swd_file_path) 元组
+        """
+        from swanlab.data.swd import SwdWriter, SWD_DTYPE_SCALAR
+
+        swd_dir = self._run_store.swd_dir
+        swd_file_name = f"m_{metric_id:03d}.swd"
+        swd_file_path = os.path.join(swd_dir, swd_file_name)
+        experiment_id = (self._run_store.run_id or "unknown").encode("utf-8")[:16]
+        writer = SwdWriter(
+            file_path=swd_file_path,
+            data_type=SWD_DTYPE_SCALAR,
+            experiment_id=experiment_id,
+            metric_id=metric_id,
+        )
+        writer.open()
+        return writer, swd_file_path
 
     def add(
         self,

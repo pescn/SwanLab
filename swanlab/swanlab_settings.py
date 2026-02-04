@@ -64,6 +64,11 @@ class Settings(BaseModel):
     max_log_length: int = Field(ge=500, le=4096, default=1024)
     # 终端日志代理类型，"all"、"stdout"、"stderr"、"none"
     log_proxy_type: Literal["all", "stdout", "stderr", "none"] = "all"
+    # ---------------------------------- .swd 二进制格式 ----------------------------------
+    # 是否启用 .swd 二进制格式存储指标数据（Phase 2）
+    use_swd_format: StrictBool = False
+    # 是否启用 COS 直接上传（Phase 3）
+    use_cos_direct: StrictBool = False
 
     def filter_changed_fields(self):
         """

@@ -37,6 +37,7 @@ import json
 import os
 from datetime import datetime
 from typing import Tuple, Optional, TextIO
+from swanlab.swanlab_settings import get_settings
 from swanlab.toolkit import RuntimeInfo, MetricInfo
 from swanlab.data.callbacker.callback import SwanLabRunCallback
 
@@ -48,6 +49,8 @@ class LocalRunCallback(SwanLabRunCallback):
         self.board = swanboard.SwanBoardCallback()
         # 当前日志写入文件的句柄
         self.file: Optional[TextIO] = None
+        # .swd manifest 管理器（可选）
+        self._manifest = None
 
     def __str__(self):
         return "SwanLabLocalRunCallback"
@@ -100,6 +103,14 @@ class LocalRunCallback(SwanLabRunCallback):
         self.porter.open_for_trace(backend='none', sync=True)
         self._start_terminal_proxy(handler=self._terminal_handler)
         self._register_sys_callback()
+        # 初始化 .swd manifest（如果启用）
+        if get_settings().use_swd_format:
+            from swanlab.data.swd.manifest import ManifestManager
+            self._manifest = ManifestManager(
+                manifest_dir=self.run_store.run_dir,
+                experiment_id=self.run_store.run_id or "unknown",
+            )
+            self._manifest.atomic_write()
         utils.print_train_begin(self.run_store.run_dir)
         utils.print_watch(self.run_store.swanlog_dir)
 
@@ -112,6 +123,19 @@ class LocalRunCallback(SwanLabRunCallback):
 
     def on_column_create(self, column_info: ColumnInfo, *args, **kwargs):
         self.porter.trace_column(column_info)
+        # 注册 .swd manifest 中的指标
+        if self._manifest is not None and column_info.error is None:
+            from swanlab.data.swd.format import SWD_DTYPE_SCALAR, SWD_DTYPE_MEDIA_REF
+            chart_type = column_info.chart_type.value.chart_type
+            dtype = SWD_DTYPE_SCALAR if chart_type == "line" else SWD_DTYPE_MEDIA_REF
+            media_prefix = f"media/m_{column_info.kid}/" if dtype == SWD_DTYPE_MEDIA_REF else None
+            self._manifest.add_metric(
+                key=column_info.key,
+                metric_id=int(column_info.kid),
+                dtype=dtype,
+                media_prefix=media_prefix,
+            )
+            self._manifest.atomic_write()
         # 屏蔽 board 不支持的图表类型和列类型
         if column_info.chart_type.value.chart_type not in ["line", "image", "audio", "text"]:
             return
@@ -124,13 +148,26 @@ class LocalRunCallback(SwanLabRunCallback):
         # 出现任何错误直接返回
         if metric_info.error:
             return
-        # ---------------------------------- 保存指标数据 ----------------------------------
+        # ---------------------------------- 保存指标数据（JSONL，现有格式） ----------------------------------
         os.makedirs(os.path.dirname(metric_info.metric_file_path), exist_ok=True)
         os.makedirs(os.path.dirname(metric_info.summary_file_path), exist_ok=True)
         with open(metric_info.summary_file_path, "w+", encoding="utf-8") as f:
             f.write(json.dumps(metric_info.metric_summary, ensure_ascii=False))
         with open(metric_info.metric_file_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(metric_info.metric, ensure_ascii=False) + "\n")
+        # ---------------------------------- 更新 .swd manifest ----------------------------------
+        if self._manifest is not None and metric_info.swd_bytes is not None:
+            key = metric_info.column_info.key
+            kid = metric_info.column_info.kid
+            swd_file_name = f"m_{int(kid):03d}.swd"
+            self._manifest.update_metric_records(
+                key=key,
+                swd_file_name=swd_file_name,
+                records=metric_info.metric_epoch,
+            )
+            # 每 100 条记录写入一次 manifest，减少 IO
+            if metric_info.metric_epoch % 100 == 0:
+                self._manifest.atomic_write()
         # ---------------------------------- 保存媒体字节流数据 ----------------------------------
         self.porter.trace_metric(metric_info)
 
@@ -145,6 +182,10 @@ class LocalRunCallback(SwanLabRunCallback):
             with open(os.path.join(get_run_store().console_dir, "error.log"), "a") as fError:
                 print(datetime.now(), file=fError)
                 print(error, file=fError)
+        # 最终写入 manifest
+        if self._manifest is not None:
+            self._manifest.set_status("crashed" if error else "completed")
+            self._manifest.atomic_write()
         self.board.on_stop(error)
         # 打印信息
         utils.print_watch(self.run_store.swanlog_dir)

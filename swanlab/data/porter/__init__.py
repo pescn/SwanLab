@@ -321,6 +321,32 @@ class DataPorter:
         return logs
 
     @traced()
+    def trace_metric_swd(self, data: MetricInfo, cos_appenders: dict = None):
+        """
+        追踪 .swd 格式的指标数据，通过 CosAppender 直接上传到 COS
+
+        :param data: MetricInfo 包含 swd_bytes
+        :param cos_appenders: {metric_kid: CosAppender} 字典
+        """
+        if data.swd_bytes is None or cos_appenders is None:
+            return
+        kid = data.column_info.kid
+        appender = cos_appenders.get(kid)
+        if appender is None:
+            return
+        try:
+            appender.append(data.swd_bytes)
+        except Exception as e:
+            from swanlab.log import swanlog
+            swanlog.debug(f"COS append failed for metric {kid}: {e}, will retry later")
+            # 失败时记录到 pending 队列（通过 SWD_FLUSH 类型）
+            self._publish((UploadType.SWD_FLUSH, [{
+                "kid": kid,
+                "swd_bytes": data.swd_bytes,
+                "swd_file_path": data.swd_file_path,
+            }]))
+
+    @traced()
     def close_trace(self, success: bool, error: str = None, epoch: int = None):
         """
         停止日志跟踪，清理相关资源

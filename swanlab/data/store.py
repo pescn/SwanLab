@@ -58,11 +58,25 @@ class RunStore(BaseModel):
     swanlog_dir: Optional[str] = None
     # 运行目录
     run_dir: Optional[str] = None
+    # COS 配置（Phase 3: 对象存储直接上传）
+    cos_config: Optional[Dict] = None
 
     @property
     def backup_file(self):
         assert os.path.exists(self.run_dir), "Run directory does not exist when accessing backup file."
         return os.path.join(self.run_dir, "backup.swanlab")
+
+    @property
+    def swd_dir(self):
+        """存放 .swd 指标文件的目录"""
+        assert os.path.exists(self.run_dir), "Run directory does not exist when accessing swd directory."
+        return os.path.join(self.run_dir, "data")
+
+    @property
+    def manifest_file(self):
+        """manifest.json 文件路径"""
+        assert os.path.exists(self.run_dir), "Run directory does not exist when accessing manifest file."
+        return os.path.join(self.run_dir, "manifest.json")
 
     @property
     def log_dir(self):

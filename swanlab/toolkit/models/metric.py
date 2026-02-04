@@ -172,6 +172,8 @@ class MetricInfo:
         swanlab_logdir: Optional[str],
         swanlab_media_dir: Optional[str],
         error: Optional[ParseErrorInfo] = None,
+        swd_bytes: Optional[bytes] = None,
+        swd_file_path: Optional[str] = None,
     ):
         """
         生成的指标信息对象
@@ -185,6 +187,8 @@ class MetricInfo:
         :param swanlab_logdir: swanlab在本次实验的log文件夹路径
         :param swanlab_media_dir: swanlab在本次实验的media文件夹路径
         :param error: 创建此指标时的错误信息
+        :param swd_bytes: .swd 格式写入的原始 bytes，供 COS 上传使用
+        :param swd_file_path: .swd 文件的本地路径
         """
         self.error = error
         self.column_info = column_info
@@ -197,6 +201,8 @@ class MetricInfo:
         self.metric_file_path = None if self.is_error else os.path.join(swanlab_logdir, _id, metric_file_name)
         self.summary_file_path = None if self.is_error else os.path.join(swanlab_logdir, _id, self.__SUMMARY_NAME)
         self.swanlab_media_dir = swanlab_media_dir
+        self.swd_bytes = swd_bytes
+        self.swd_file_path = swd_file_path
         # 写入文件名称，对应上传时的文件名称：{key}/{文件名称}，文件夹名称为key
         if self.metric_buffers is not None:
             for i, buffer in enumerate(self.metric_buffers):

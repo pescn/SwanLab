@@ -380,6 +380,9 @@ class SwanLabInitializer:
         os.makedirs(run_store.log_dir, exist_ok=True)
         os.makedirs(run_store.file_dir, exist_ok=True)
         os.makedirs(run_store.console_dir, exist_ok=True)
+        # 当启用 .swd 格式时，创建 data/ 目录
+        if user_settings.use_swd_format:
+            os.makedirs(run_store.swd_dir, exist_ok=True)
         # ---------------------------------- 初始化运行实例 ----------------------------------
         # 系统信息检测
         meta, monitor_funcs = None, None
